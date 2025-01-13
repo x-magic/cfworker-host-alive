@@ -64,8 +64,6 @@ export default {
 				`${resultReadHostData.hostname} is back online. It was offline for\n${offlineTimeReadable}`,  // message
 				0  // priority
 			);
-		} else {
-			console.log(`'${resultReadHostData.hostname}' checked in and was already online`);
 		}
 
 		// Write changes back to D1
@@ -135,8 +133,6 @@ export default {
 				} else {
 					console.log(`${timeOfSchedule}: Checked '${currentHost.hostname}', which is known to be offline`);
 				}
-			} else {
-				console.log(`${timeOfSchedule}: Checked '${currentHost.hostname}', which its last check-in is still valid`);
 			}
 		}
 	}
