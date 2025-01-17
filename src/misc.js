@@ -36,9 +36,9 @@ export async function pushOver(env, title, message, priority) {
 	// Parse Pushover response
 	let pushOverResultsParsed = JSON.parse(pushOverResultsBody);
 	if (pushOverResultsParsed.status === 1) {
-		console.log('Pushover sent: ' + pushOverResultsParsed);
+		console.log('Pushover sent: ' + pushOverResultsBody);
 	} else {
-		console.error('Pushover failed: ' + pushOverResultsParsed);
+		console.error('Pushover failed: ' + pushOverResultsBody);
 		return new Response(null, { status: 500 });
 	}
 }
