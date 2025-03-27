@@ -8,7 +8,7 @@ preview_urls = false
 
 # Cron Triggers
 [triggers]
-crons = ["1-58/3 * * * *"] # 1-58/3 * * * * = run every 3 minute (but start at 2nd minute of each hour)
+crons = ["* * * * *"] # 1-58/3 * * * * = run every 3 minute (but start at 2nd minute of each hour)
 
 # Workers Logs
 [observability]
@@ -19,7 +19,8 @@ invocation_logs = false
 
 # Environment variable bindings
  [vars]
- DISCONNECTION_THRESHOLD = "185"  # Depends on how often the CRON job runs
+ DISCONNECTION_THRESHOLD = 75  # Depends on how often the CRON job runs
+ RECONNECTION_THRESHOLD = 60  # Depends on how often the CRON job runs
 # PO_APPTOKEN = "PUSHOVER_APP_TOKEN"  # Ensure to set secrets with `npx wrangler secret put PO_APPTOKEN` after deployment
 # PO_USERKEY = "PUSHOVER_USER_KEY"  # Ensure to set secrets with `npx wrangler secret put PO_USERKEY` after deployment
 

@@ -26,54 +26,18 @@ export default {
 	async fetch(request, env, ctx) {
 		// Get data from request
 		const request_url = new URL(request.url);
-		const hostkey = request_url.searchParams.get('hostkey');
+		const hostKey = request_url.searchParams.get('hostkey');
 
 		// Ensure host key is provided in the request
-		if (!hostkey) {
+		if (!hostKey)
 			return new Response(null, { status: 400 });
-		}
-
-		// Read host data with host key from D1
-		let resultReadHostData;
-		try {
-			resultReadHostData = await env.MONITORED_HOSTS_DB
-				.prepare('SELECT * FROM [hosts] WHERE [hostkey] = ?')
-				.bind(hostkey)
-				.first();
-		} catch (err) {
-			console.error(`D1 failed to retrieve host data with key '${hostkey}'`);
-			return new Response(null, { status: 401 });
-		}
-
 
 		let currentTime = Math.floor(Date.now() / 1000);
-		let lastCheckin = resultReadHostData.lastcheckin;
-		let hostDisconnected = resultReadHostData.disconnected;
 
-		// Unset disconnected flag and notify on reconnection
-		if (hostDisconnected) {
-			hostDisconnected = false;
-
-			console.log(`'${resultReadHostData.hostname}' checked in and has recovered from disconnection`);
-
-			let offlineInSeconds = currentTime - lastCheckin;
-			let offlineTimeReadable = secondHumanReadable(offlineInSeconds);
-			await pushOver(
-				env,
-				`${resultReadHostData.hostname} is back online!`,  // title
-				`${resultReadHostData.hostname} is back online. It was offline for\n${offlineTimeReadable}`,  // message
-				0  // priority
-			);
-		}
-
-		// Write changes back to D1
+		// Write last checkin timestamp to D1
 		const resultWriteHostData = await env.MONITORED_HOSTS_DB
-			.prepare('UPDATE [hosts] SET lastcheckin = ?, disconnected = ? WHERE hostkey = ?')
-			.bind(
-				currentTime,
-				hostDisconnected,
-				hostkey
-			)
+			.prepare('UPDATE [hosts] SET lastcheckin = ? WHERE hostkey = ?')
+			.bind(currentTime, hostKey)
 			.run();
 		if (!resultWriteHostData.success) {
 			console.error('D1 database failed to write updates' + JSON.stringify(resultWriteHostData));
@@ -88,7 +52,8 @@ export default {
 		const timeOfSchedule = new Date(event.scheduledTime).toLocaleString('en-AU', { timeZone: 'Australia/Melbourne' });
 
 		// Threshold (which should be set depends on how often CRON job is triggered)
-		const disconnectionThreshold = await env.DISCONNECTION_THRESHOLD || 185;
+		const disconnectionThreshold = await env.DISCONNECTION_THRESHOLD || 75;
+		const reconnectionThreshold = await env.RECONNECTION_THRESHOLD || 60;
 
 		// Go through all host configurations in D1
 		const resultReadHostsData = await env.MONITORED_HOSTS_DB
@@ -101,29 +66,50 @@ export default {
 
 		for (const currentHost of resultReadHostsData.results) {
 			let currentTime = Math.floor(Date.now() / 1000);
-			let currentHostDisconnected = currentHost.disconnected;
+			let checkinTimeDifference = currentTime - currentHost.lastcheckin;
 
-			// Check if last checkin of the host is longer than threshold
-			if (currentTime - currentHost.lastcheckin > disconnectionThreshold) {
-				if (!currentHostDisconnected) {
-					// Change disconnection flag
-					currentHostDisconnected = true;
+			// Check if the current host was previously detected as disconnected
+			if (currentHost.disconnected) {
+				if (checkinTimeDifference <= reconnectionThreshold) {
+					// Previously disconnected host has been reconnected
 
 					// Save changes back to database
 					const resultWriteHostData = await env.MONITORED_HOSTS_DB
 						.prepare('UPDATE [hosts] SET disconnected = ? WHERE hostkey = ?')
-						.bind(
-							currentHostDisconnected,
-							currentHost.hostkey
-						)
+						.bind(false, currentHost.hostkey)
 						.run();
 					if (!resultWriteHostData.success) {
 						console.error('D1 database failed to write updates: ' + JSON.stringify(resultWriteHostData));
 						break;
 					}
 
-					// And notify on first disconnection
-					console.log(`${timeOfSchedule}: Checked '${currentHost.hostname}', and it seems to be offline`);
+					// And notify on reconnection
+					console.log(`${timeOfSchedule}: Checked '${currentHost.hostname}', and it has recovered from disconnection after ${checkinTimeDifference}s.`);
+					await pushOver(
+						env,
+						`${currentHost.hostname} is back online!`,  // title
+						`${currentHost.hostname} is back online. It was offline for ${secondHumanReadable(checkinTimeDifference)}`,  // message
+						0  // priority
+					);
+				} else {
+					console.log(`${timeOfSchedule}: Checked '${currentHost.hostname}', which is known to be offline. Time since last check-in: ${checkinTimeDifference}s.`);
+				}
+			} else {
+				if (checkinTimeDifference >= disconnectionThreshold) {
+					// Host has missed a checkpoint and is considered as disconnected
+
+					// Save changes back to database
+					const resultWriteHostData = await env.MONITORED_HOSTS_DB
+						.prepare('UPDATE [hosts] SET disconnected = ? WHERE hostkey = ?')
+						.bind(true, currentHost.hostkey)
+						.run();
+					if (!resultWriteHostData.success) {
+						console.error('D1 database failed to write updates: ' + JSON.stringify(resultWriteHostData));
+						break;
+					}
+
+					// And notify on reconnection
+					console.log(`${timeOfSchedule}: Checked '${currentHost.hostname}', and it seems to be offline.`);
 					await pushOver(
 						env,
 						`${currentHost.hostname} is offline!`,  // title
@@ -131,7 +117,7 @@ export default {
 						0  // priority
 					);
 				} else {
-					console.log(`${timeOfSchedule}: Checked '${currentHost.hostname}', which is known to be offline`);
+					console.log(`${timeOfSchedule}: Checked '${currentHost.hostname}'. Time since last check-in: ${checkinTimeDifference}s.`);
 				}
 			}
 		}
