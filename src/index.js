@@ -64,19 +64,21 @@ export default {
 			return;
 		}
 
+		// Check all hosts in the database
 		for (const currentHost of resultReadHostsData.results) {
 			let currentTime = Math.floor(Date.now() / 1000);
 			let checkinTimeDifference = currentTime - currentHost.lastcheckin;
 
 			// Check if the current host was previously detected as disconnected
-			if (currentHost.disconnected) {
+			if (currentHost.disconnected !== null) {
 				if (checkinTimeDifference <= reconnectionThreshold) {
 					// Previously disconnected host has been reconnected
+					const actualDisconnectionTime = currentTime - currentHost.disconnected
 
 					// Save changes back to database
 					const resultWriteHostData = await env.MONITORED_HOSTS_DB
 						.prepare('UPDATE [hosts] SET disconnected = ? WHERE hostkey = ?')
-						.bind(false, currentHost.hostkey)
+						.bind(null, currentHost.hostkey)
 						.run();
 					if (!resultWriteHostData.success) {
 						console.error('D1 database failed to write updates: ' + JSON.stringify(resultWriteHostData));
@@ -84,11 +86,11 @@ export default {
 					}
 
 					// And notify on reconnection
-					console.log(`${timeOfSchedule}: Checked '${currentHost.hostname}', and it has recovered from disconnection after ${checkinTimeDifference}s.`);
+					console.log(`${timeOfSchedule}: Checked '${currentHost.hostname}', and it has recovered from disconnection after ${actualDisconnectionTime}s.`);
 					await pushOver(
 						env,
 						`${currentHost.hostname} is back online!`,  // title
-						`${currentHost.hostname} is back online. It was offline for ${secondHumanReadable(checkinTimeDifference)}`,  // message
+						`${currentHost.hostname} is back online. It was offline for ${secondHumanReadable(actualDisconnectionTime)}`,  // message
 						0  // priority
 					);
 				} else {
@@ -101,7 +103,7 @@ export default {
 					// Save changes back to database
 					const resultWriteHostData = await env.MONITORED_HOSTS_DB
 						.prepare('UPDATE [hosts] SET disconnected = ? WHERE hostkey = ?')
-						.bind(true, currentHost.hostkey)
+						.bind(currentHost.lastcheckin, currentHost.hostkey)
 						.run();
 					if (!resultWriteHostData.success) {
 						console.error('D1 database failed to write updates: ' + JSON.stringify(resultWriteHostData));
